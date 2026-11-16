@@ -17,6 +17,7 @@ Mods Menu 원본 DLL과 스크립트를 격리하고 C++ 로더·전투 스크�
 - 설정 메뉴 연결은 같은 파일에 있습니다. 게임의 `SettingPanel`에 동적 탭 하나를 등록하고, 기본 설정 행과 설명 위젯을 생성합니다. 게임의 UI 레이어가 일시정지·커서·뒤로가기를 담당합니다. 기본 설정 값은 변경하지 않으며, 그래픽 미적용 변경의 확인 절차도 게임에 맡깁니다.
 - `settings/JidonPBZ.json`: 제한된 숫자·불리언 설정이며 `eval`은 없습니다.
 - `dist/hid.dll`, `bundle.lock.json`: 자체 빌드 파일과 SHA-256(Secure Hash Algorithm 256-bit, 파일 동일성 검사값) 목록입니다. 해시는 동일성 확인이며 무해함의 증명이 아닙니다.
+- `PBZ-Mod-Manager.cmd` → `tools/windows_mod_manager.ps1` → `tools/WindowsMod.psm1`: Windows 기본 PowerShell 5.1용 설치 메뉴와 파일 처리입니다. Steam 등록 경로·라이브러리·해당 앱 manifest를 읽어 설치 위치를 찾습니다. 자체 DLL·스크립트·설정만 설치하며 외부 다운로드·로그인·세이브 편집은 하지 않습니다.
 
 로더·전투 스크립트에는 네트워크, 레지스트리, 명령 실행, 자동 업데이트, 계정 접근 코드가 없습니다. 설치 도구의 프로세스 확인과 Git 동기화, 선택적 세이브 디코더는 게임 안에서 실행되지 않는 별도 작업입니다. 이 설명은 운영체제나 게임 전체의 무해함을 증명하지 않습니다.
 
@@ -37,15 +38,29 @@ Mods Menu 원본 DLL과 스크립트를 격리하고 C++ 로더·전투 스크�
 | 시간 제어 시작·해제 | 모의 공격 타이밍 + 실제 게임 시스템 |
 | 배수 누적 방지·색상·완막 결과·사망·정지·플레이어 교체·설정·진단 실패·메뉴 저장 실패·반올림·단정도 오차 | Node.js 모의 엔진 시험 17개 |
 | 설치·백업·복구·경로·무결성·부분 실패·이전 자체 배포본 식별 | Python 임시 폴더 시험 9개 + 실제 묶음 설치·설정 보존·내보내기·복구 통합 시험 1개 |
+| Windows 기본 설치 메뉴: 신규 설치·설정 보존·업그레이드·내보내기·제거·복구·오류 중단 | PowerShell 5.1 임시 폴더 시험 12개. 실제 배포 DLL·스크립트를 복사하되 게임 코드는 실행하지 않음 |
 | 실제 적 공격·모든 보스·지역 이동 | 미완료 |
 | 스크립트에 주석을 추가한 무결성 실패 | 후킹 거부 로그 + 원래 게임 타이틀 도달 |
 | 다른 PC·다른 게임 버전 | 미완료 / 지원 해시 외 적용 거부 |
 
 설치 도구는 자체 DLL과 스크립트 두 경로만 허용합니다. 게임 종료, 백업, 쓰기 직전 내용, 원자적 교체, 읽기 검증을 거칩니다. 실패 시 이번 내용과 일치하는 파일만 복구해 다른 변경을 보존합니다. 정전·디스크 장애까지 보장하지 않습니다.
 
+Windows 설치 메뉴는 한글·공백·대괄호가 있는 경로를 임시 폴더에서 시험했습니다. 링크·정션 경로는 대상 혼동을 피하기 위해 거부합니다. `PBZ-Mod-Manager.cmd`의 실행 정책 옵션은 해당 PowerShell 프로세스에만 적용하고 시스템 정책을 저장·변경하지 않습니다. 조직 정책으로 스크립트 실행이 금지된 PC까지 지원한다고 보장하지 않습니다.
+
+Windows 백업 기록은 `.local/windows-backups`에, 이전 Python 도구의 기록은 `.local/backups`에 저장됩니다. 복구 시 기록과 백업 해시, 대상 경로, 작업 후 현재 내용이 일치해야 합니다. Windows PowerShell의 문자열 변환 때문에 `File.Replace`의 null 백업 경로가 빈 문자열로 전달된 사례를 고쳐, 같은 폴더의 명시적인 임시 백업 경로를 사용합니다.
+
 게임 내 저장은 엔진의 파일 저장 기능으로 직전 설정을 `.previous`에 보관한 뒤 JSON을 쓰고 다시 읽습니다. 설치 도구의 원자적 교체와는 다르므로 쓰기 도중 정전까지 보장하지 않습니다. 원본 Mods Menu DLL·스크립트를 실행하거나 메뉴 코드를 배포본에 동봉하지 않습니다.
 
 ## 재현과 이어받기
+
+설치만 할 때에는 개발 도구가 필요 없습니다. 아래 명령은 개발·검증용이며 일반 사용 절차는 README를 따릅니다.
+
+```powershell
+powershell.exe -NoProfile -File tests/windows_installer.test.ps1
+powershell.exe -NoProfile -File tools/windows_mod_manager.ps1 -Action Verify
+```
+
+Windows 도구의 `-Action Install -GamePath '실제 게임 폴더'`는 미리보기이며 `-Apply`를 붙이면 적용합니다. `Import`, `Export`, `Remove`, `Restore -Receipt '경로'`도 같은 규칙입니다. `Verify`는 읽기 전용입니다. Python 도구는 기존 `tools/mod_sync.py install|verify|settings|export|restore --game '경로' [--apply]`를 계속 지원합니다.
 
 Windows Visual Studio 2022 Community의 C++ 도구, Python, Node.js를 사용합니다. 다른 VS 설치 위치라면 `native/build.cmd`의 `vcvars64.bat` 경로를 조정하세요. 소스 줄바꿈은 LF이며 생성 파일은 Git에서 제외합니다.
 

@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-16",
+  "purpose": "Windows built-in installer portability",
+  "powershell_version": "5.1.26100.9818",
+  "tests_passed": 12,
+  "clean_zip_extracted": true,
+  "launcher_without_python_node_git_on_PATH": true,
+  "stock_windows_modules_only": true,
+  "korean_spaces_brackets_path_tested": true,
+  "installed_game_read_only_verify": "MATCH",
+  "dll_sha256": "b223fac189e4dcc7c4217cccf0411bec2e6be7f1e3d80a055952104f73ede371",
+  "script_sha256": "229b3f32ff0ee304f7b8d28f6b0c4efdbda1c04ffad05293395ecaf25d878be2",
+  "physical_second_pc_tested": false,
+  "game_code_changed": false,
+  "game_launched_for_this_installer_update": false
+}

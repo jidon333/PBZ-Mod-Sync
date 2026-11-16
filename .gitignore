@@ -15,3 +15,4 @@ native/*.exp
 .env*
 credentials*
 token*
+.playwright-cli/
