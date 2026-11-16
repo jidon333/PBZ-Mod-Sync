@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "deflect": 2,
+  "dodge": 2,
+  "blue": true,
+  "red": true,
+  "speed": 0.5,
+  "seconds": 1.5,
+  "selfTest": false
+}

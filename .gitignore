@@ -1,0 +1,17 @@
+.local/
+downloads/
+__pycache__/
+*.pyc
+*.sav
+*.dll
+*.zip
+!dist/hid.dll
+native/generated.h
+native/forward.asm
+native/exports.def
+native/*.lib
+native/*.exp
+.venv/
+.env*
+credentials*
+token*

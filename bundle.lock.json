@@ -1,0 +1,20 @@
+{
+  "version": "0.1.0-preview",
+  "packages": [
+    {
+      "id": "jidon-source-built",
+      "files": [
+        {
+          "source": "dist/hid.dll",
+          "path": "platform/steam/hid.dll",
+          "sha256": "b5805f4d9470072bb8be2b2d848aac0963518db5745421c13ba605e8571c6e88"
+        },
+        {
+          "source": "scripts/boot.js",
+          "path": "ProjectPBZ/Content/JavaScript/JidonPBZ/boot.js",
+          "sha256": "6066bb242bd0c9530394266d99b192187cae512ed14561625b50fcd6f364fe17"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-16",
+  "status": "preview-real-combat-unverified",
+  "game_build": "26367565",
+  "dll_sha256": "b5805f4d9470072bb8be2b2d848aac0963518db5745421c13ba605e8571c6e88",
+  "script_sha256": "6066bb242bd0c9530394266d99b192187cae512ed14561625b50fcd6f364fe17",
+  "tests": {
+    "node_mock_behavior": 11,
+    "python_installer": 8,
+    "python_real_bundle_integration": 1
+  },
+  "live": {
+    "game_boot_and_save_load": true,
+    "synthetic_blue_starts": 1,
+    "synthetic_red_starts": 1,
+    "own_slow_key_removed": 2,
+    "normal_deflect_frames": {
+      "before": 8,
+      "enabled": 16,
+      "disabled": 8
+    },
+    "perfect_dodge_seconds": {
+      "before": 0.15,
+      "enabled": 0.3,
+      "disabled": 0.15
+    },
+    "config_disable_and_reenable": true,
+    "script_tamper_rejected_with_normal_title": true,
+    "enemy_combat_verified": false,
+    "death_travel_verified": false
+  },
+  "native": {
+    "export_names_exact": 47,
+    "imports": [
+      "bcrypt.dll",
+      "KERNEL32.dll"
+    ],
+    "HidD_GetHidGuid_matches_system": true
+  },
+  "evidence_hashes": {
+    "final-native.log": "54fac432f21e7ac7632a11c732310623929b4c42ba343f86c2f2321dee71b839",
+    "final-runtime.log": "a0c70bfe0274b9d5f9a4387585f709e70f130d92d1958a7d2730731b6f5a48b1",
+    "modified-script-rejected.log": "fe7cdbb7b8e334ce498a800ba2931878100a936c1e29c03eba010f3a8b05c8fd"
+  },
+  "final_settings": {
+    "enabled": true,
+    "deflect": 2,
+    "dodge": 2,
+    "blue": true,
+    "red": true,
+    "speed": 0.5,
+    "seconds": 1.5,
+    "selfTest": false
+  },
+  "limitation": "Automated mouse attack worked but keyboard gameplay input did not; no real enemy attack was exercised."
+}
