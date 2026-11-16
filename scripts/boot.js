@@ -90,7 +90,8 @@ function scale(object, field, multiplier, label, cap) {
     let rec = state.records.find(r => r.object === object && r.field === field);
     if (!rec) { rec = { object, field, base: value, written: value }; state.records.push(rec); }
     if (value !== rec.written) rec.base = value;
-    const want = Math.min(cap, rec.base * multiplier);
+    // Native deflect windows are integer frame counts, including odd baselines.
+    const want = Math.min(cap, Math.round(rec.base * multiplier));
     if (value === want) return;
     object[field] = want; rec.written = object[field];
     if (rec.written !== want) throw new Error("write/readback mismatch " + label);
@@ -111,7 +112,8 @@ function windows() {
     if (dodgeObject !== object || value !== dodgeLast) dodgeBase = value;
     dodgeObject = object;
     const want = Math.min(1, dodgeBase * (config.enabled ? config.dodge : 1));
-    if (value !== want) {
+    // The engine stores this duration as float32; ignore its rounding residue.
+    if (Math.abs(value - want) > 0.0000001) {
         flat.Value = want; magnitude.ScalableFloatMagnitude = flat; object.DurationMagnitude = magnitude;
         if (Math.abs(object.DurationMagnitude.ScalableFloatMagnitude.Value - want) > 0.00001) throw new Error("dodge readback mismatch");
         log("WINDOW dodge base=" + dodgeBase + " actual=" + object.DurationMagnitude.ScalableFloatMagnitude.Value);
@@ -179,3 +181,252 @@ function tick() {
 }
 log("BOOTSTRAP_OK own source; no Mods Menu required");
 setInterval(tick, 50);
+
+const menuSpec = [
+    ["enabled", "\uc804\ud22c \ubcf4\uc870", "\uc804\uccb4 \ucf1c\uae30 / \ub044\uae30"],
+    ["deflect", "\uc644\ubcbd \ubc29\uc5b4", "\uae30\ubcf8 \ud310\uc815 \uc2dc\uac04\uc758 \ubc30\uc728", 1, 3, 0.25],
+    ["dodge", "\uc644\ubcbd \ud68c\ud53c", "\uae30\ubcf8 \ud310\uc815 \uc2dc\uac04\uc758 \ubc30\uc728", 1, 3, 0.25],
+    ["red", "\ube68\uac15 \uacf5\uaca9", "\uc2ac\ub85c\ubaa8\uc158", null],
+    ["blue", "\ud30c\ub791 \uacf5\uaca9", "\uc2ac\ub85c\ubaa8\uc158", null],
+    ["speed", "\uc2ac\ub85c\ubaa8\uc158 \uc18d\ub3c4", "\ub0ae\uc744\uc218\ub85d \ub290\ub9ac\uac8c", 0.25, 1, 0.05],
+    ["seconds", "\ucd5c\ub300 \uc9c0\uc18d\uc2dc\uac04", "\ud55c \ubc88\uc758 \uc2ac\ub85c\ubaa8\uc158 / \uc2e4\uc81c \uc2dc\uac04", 0.2, 2, 0.1]
+];
+function menuValue(name) {
+    const v = config[name];
+    if (typeof v === "boolean") return v ? "\ucf1c\uc9d0" : "\uaebc\uc9d0";
+    return name === "speed" ? Math.round(v * 100) + "%" : name === "seconds" ? v.toFixed(1) + "\ucd08" : v.toFixed(2) + "x";
+}
+function changeSetting(name, direction) {
+    const spec = menuSpec.find(s => s[0] === name); if (!spec) return false;
+    const next = Object.assign({}, config);
+    next[name] = typeof next[name] === "boolean" ? !next[name] : Math.max(spec[3], Math.min(spec[4], Math.round((next[name] + direction * spec[5]) * 100) / 100));
+    if (next[name] === config[name]) return true;
+    const priorConfig = config, priorText = configText;
+    const text = JSON.stringify(next, null, 2) + "\n", prior = JSON.stringify(config, null, 2) + "\n";
+    try {
+        // Preserve a last-good copy before replacing the small settings file.
+        if (!UE.EasyCsv.SaveStringToFileWithFullPath(prior, configPath + ".previous")) throw new Error("backup write failed");
+        if (!UE.EasyCsv.SaveStringToFileWithFullPath(text, configPath)) throw new Error("settings write failed");
+        const out = puerts.$ref("");
+        if (!UE.EasyCsv.LoadStringFromLocalFile(configPath, out) || puerts.$unref(out) !== text) throw new Error("settings readback failed");
+        readConfig(); windows();
+        refreshMenu("\uc800\uc7a5\ub428 \u00b7 \uc989\uc2dc \uc801\uc6a9"); log("MENU_SAVE " + name + "=" + config[name]); return true;
+    } catch (e) {
+        // Disk failure must not silently change the live configuration.
+        config = priorConfig; configText = priorText;
+        try { UE.EasyCsv.SaveStringToFileWithFullPath(prior, configPath); windows(); } catch (restoreError) { log("MENU_SAVE_ROLLBACK_ERROR " + restoreError); }
+        refreshMenu("\uc800\uc7a5 \uc2e4\ud328 \u00b7 \uc124\uc815 \ud30c\uc77c\uc744 \ud655\uc778\ud558\uc138\uc694"); log("MENU_SAVE_ERROR " + e); return false;
+    }
+}
+const menu = {panel:null,root:null,details:null,rows:[],active:false,blank:null,focus:0,enterSecond:false,lastStock:"Game",generation:0,down:true,request:null,error:"",message:"",refreshAt:0};
+// The game owns the menu layer, pause, cursor, Back and its graphics dialogs.
+// We add one settings tab, seven stock row views and our own persistence handlers.
+const settingsTab = "JidonCombatAssist";
+const textValue = value => UE.KismetTextLibrary.Conv_StringToText(value);
+function tabText() { return new UE.FlowLocText(settingsTab, settingsTab, textValue("\uc804\ud22c \ubcf4\uc870")); }
+function currentPanelOwnsInput() {
+    if (!menu.panel || !UE.KismetSystemLibrary.IsValid(menu.panel) || !menu.panel.IsVisible()) return false;
+    const router = require("Library/TsHelper").default.getlocalPlayerSubsystem(menu.panel,UE.PBZUIActionRouterBase.StaticClass());
+    const owner = router && router.FindOwningActivatable(menu.panel,menu.panel.GetOwningLocalPlayer());
+    return !!owner && router.GetActiveWidget() === owner;
+}
+function updateDetails(index, message) {
+    const d = menu.details; if(!d) return;
+    const spec = menuSpec[index] || menuSpec[0];
+    d.SetVisibility(UE.ESlateVisibility.SelfHitTestInvisible);
+    d.Text_SettingName.SetText(textValue(spec[1]));
+    d.RichText_Description.SetText(textValue(spec[2] + "\n\n\ud604\uc7ac \uc124\uc815: " + menuValue(spec[0])
+        + "\n\n\ud654\uc0b4\ud45c\ub97c \ub204\ub974\uba74 \uc989\uc2dc \uc801\uc6a9\ub418\uace0 \uc800\uc7a5\ub429\ub2c8\ub2e4."
+        + "\nF9: \uc804\ud22c \ubcf4\uc870 \uc5f4\uae30 / Esc: \ub4a4\ub85c\uac00\uae30"
+        + "\n\uc2ac\ub85c\ubaa8\uc158\uc740 \uc790\ub3d9 \ubc29\uc5b4\uac00 \uc544\ub2d9\ub2c8\ub2e4."
+        + (message ? "\n\n"+message : "")));
+    if(d.RichText_WarningDetails) d.RichText_WarningDetails.SetVisibility(UE.ESlateVisibility.Collapsed);
+}
+function refreshMenu(message) {
+    if (!menu.active) return;
+    for (const row of menu.rows) {
+        const value = menuValue(row.name); if(row.shown === value) continue;
+        const labels=UE.NewArray(UE.BuiltinText); labels.Add(textValue(value));
+        row.view.Rotator_SettingValue.PopulateTextLabels(labels);
+        row.view.Rotator_SettingValue.SetSelectedItem(0); row.shown=value;
+    }
+    updateDetails(menu.focus, message || menu.message);
+    if(message) menu.message=message;
+}
+function selectMenuRow(index, focus) {
+    if (!menu.active || !menu.rows[index]) return;
+    menu.focus=index;
+    menu.rows.forEach((r,i)=>{
+        const selected=i===index;r.view.SetSelected(selected);
+        r.view.Text_SettingName.OverrideTextColor(selected?r.view.SelectedColor:r.view.DefaultColor);
+    });
+    if(focus) menu.rows[index].button.SetKeyboardFocus();
+    updateDetails(index,menu.message);
+}
+function dropMenuPage() {
+    menu.active=false; menu.generation++;
+    if(menu.root) try { menu.root.RemoveFromParent(); } catch(e) { log("MENU_REMOVE_ERROR "+e); }
+    menu.root=null; menu.rows=[]; menu.details=null; menu.message="";
+}
+function leaveAssistTab() {
+    if(menu.active && menu.panel) menu.panel.IsEnterSecond=menu.enterSecond;
+    menu.active=false;
+}
+function positionLike(slot, source, container) {
+    const geometry=container.GetCachedGeometry(), size=UE.SlateBlueprintLibrary.GetLocalSize(geometry);
+    const g=source.GetCachedGeometry(), extent=UE.SlateBlueprintLibrary.GetLocalSize(g);
+    if(size.X<=0 || extent.X<=0) throw new Error("settings layout not ready");
+    const origin=UE.SlateBlueprintLibrary.AbsoluteToLocal(geometry,UE.SlateBlueprintLibrary.LocalToAbsolute(g,new UE.Vector2D(0,0)));
+    const end=UE.SlateBlueprintLibrary.AbsoluteToLocal(geometry,UE.SlateBlueprintLibrary.LocalToAbsolute(g,extent));
+    slot.SetHorizontalAlignment(UE.EHorizontalAlignment.HAlign_Fill);
+    slot.SetVerticalAlignment(UE.EVerticalAlignment.VAlign_Fill);
+    slot.SetPadding(new UE.Margin(origin.X,origin.Y,Math.max(0,size.X-end.X),Math.max(0,size.Y-end.Y)));
+}
+function menuNavigation(generation,index,delta,step) {
+    return ()=>{
+        if(generation!==menu.generation || !menu.active) return null;
+        if(step) changeSetting(menu.rows[index].name,delta);
+        const target=step?index:Math.max(0,Math.min(menu.rows.length-1,index+delta));
+        selectMenuRow(target,false);return menu.rows[target].button;
+    };
+}
+function menuRowClick(generation,index) {
+    return ()=>{
+        if(generation!==menu.generation || !menu.active) return;
+        const row=menu.rows[index], mouse=UE.WidgetLayoutLibrary.GetMousePositionOnPlatform();
+        const dec=row.view.Button_Decrease;
+        const minus=UE.SlateBlueprintLibrary.IsUnderLocation(dec.GetCachedGeometry(),mouse);
+        selectMenuRow(index,true); changeSetting(row.name,minus?-1:1);
+    };
+}
+function createSettingsPage(panel) {
+    const pc=UE.GameplayStatics.GetPlayerController(gi,0), sw=panel.WidgetSwitcher_65;
+    const root=UE.NewObject(UE.Overlay.StaticClass(),panel), scroll=UE.NewObject(UE.ScrollBox.StaticClass(),panel);
+    menu.root=root; sw.AddChild(root); positionLike(root.AddChild(scroll),panel.ListView_Settings,sw);
+    scroll.SetScrollBarVisibility(UE.ESlateVisibility.Collapsed);
+    const cls=UE.Class.Load("/Game/PBZContent/UI/Settings/Editors/W_SettingsListEntry_Discrete.W_SettingsListEntry_Discrete_C");
+    const generation=++menu.generation;
+    menu.rows=menuSpec.map((spec,index)=>{
+        const view=UE.WidgetBlueprintLibrary.Create(gi,cls,pc), button=UE.NewObject(UE.Button.StaticClass(),panel);
+        // Native row delegates expect a native GameSetting object. The stock row
+        // is visual-only; a transparent wrapper owns our seven custom actions.
+        const style=button.WidgetStyle;
+        for(const name of ["Normal","Hovered","Pressed","Disabled"]) { const brush=style[name];brush.DrawAs=UE.ESlateBrushDrawType.NoDrawType;style[name]=brush; }
+        style.NormalPadding=new UE.Margin(0,0,0,0);style.PressedPadding=new UE.Margin(0,0,0,0);button.SetStyle(style);
+        const slot=button.AddChild(view);slot.SetPadding(new UE.Margin(0,0,0,0));
+        slot.SetHorizontalAlignment(UE.EHorizontalAlignment.HAlign_Fill);slot.SetVerticalAlignment(UE.EVerticalAlignment.VAlign_Fill);
+        view.SetVisibility(UE.ESlateVisibility.HitTestInvisible);
+        view.Text_SettingName.SetText(textValue(spec[1]));
+        view.SetSelected(false); scroll.AddChild(button);
+        button.OnClicked.Add(menuRowClick(generation,index));
+        button.OnHovered.Add(()=>{if(menu.generation===generation)selectMenuRow(index,true);});
+        return {name:spec[0],view,button,shown:null};
+    });
+    for(let i=0;i<menu.rows.length;i++) {
+        const button=menu.rows[i].button;
+        for(const [dir,delta,step] of [[UE.EUINavigation.Left,-1,true],[UE.EUINavigation.Right,1,true],[UE.EUINavigation.Up,-1,false],[UE.EUINavigation.Down,1,false]])
+            button.SetNavigationRuleCustom(dir,puerts.toDelegate(button,menuNavigation(generation,i,delta,step)));
+    }
+    const source=panel.Details_Settings, box=UE.NewObject(UE.SizeBox.StaticClass(),panel), originalBox=source.GetParent();
+    for(const property of ["WidthOverride","HeightOverride","MinDesiredWidth","MinDesiredHeight","MaxDesiredWidth","MaxDesiredHeight"])
+        if(originalBox["bOverride_"+property]) box["Set"+property](originalBox[property]);
+    const slot=root.AddChild(box), oldSlot=originalBox.Slot;
+    slot.SetPadding(oldSlot.Padding);slot.SetHorizontalAlignment(oldSlot.HorizontalAlignment);slot.SetVerticalAlignment(oldSlot.VerticalAlignment);
+    menu.details=UE.WidgetBlueprintLibrary.Create(gi,source.GetClass(),pc);box.AddChild(menu.details);
+    log("MENU_PAGE_BUILT stock_rows="+menu.rows.length);
+}
+function enterAssistTab(panel) {
+    if(menu.panel!==panel) { dropMenuPage();menu.panel=panel; }
+    if(!menu.root) createSettingsPage(panel);
+    if(!menu.active) menu.enterSecond=panel.IsEnterSecond;
+    if(!menu.blank || !UE.KismetSystemLibrary.IsValid(menu.blank)) menu.blank=new UE.GameSettingCollection();
+    panel.CurrentCollection=menu.blank; // never null: native settings refresh dereferences it
+    panel.RefreshKey(); menu.active=true; panel.IsEnterSecond=true;
+    panel.WidgetSwitcher_65.SetActiveWidgetIndex(panel.WidgetSwitcher_65.GetChildIndex(menu.root));
+    panel.W_SecondTabLine.InitDataByText(tabText());
+    stop("settings-menu");refreshMenu(); selectMenuRow(0,true);
+    log("MENU_OPEN native-settings "+JSON.stringify(config));
+}
+function registerAssistTab(panel) {
+    const tabs=panel.W_OverlayTabList_C;
+    for(let i=0;i<tabs.GetTabCount();i++) if(String(tabs.GetTabIdAtIndex(i))===settingsTab)return;
+    const ref=puerts.$ref(new UE.PBZTabDescriptor());
+    if(!tabs.GetPreregisteredTabInfo("View",ref))throw new Error("native settings tab template missing");
+    const descriptor=puerts.$unref(ref);descriptor.TabId=settingsTab;descriptor.TabText=tabText();
+    const icon=UE.Object.Load("/Game/PBZContent/UI/Settings/Texture/T_Setting_Icon.T_Setting_Icon");
+    if(icon){const brush=descriptor.IconBrush;brush.ResourceObject=icon;descriptor.IconBrush=brush;}
+    descriptor.TabContentType=null;descriptor.CreatedTabContentWidget=null;descriptor.bHidden=false;
+    if(!tabs.RegisterDynamicTab(descriptor))throw new Error("native tab registration refused");
+    const box=tabs.TabButtonBox, count=box.GetChildrenCount();
+    if(count>2) { const before=box.GetChildAt(count-2).Slot,last=box.GetChildAt(count-1).Slot,first=box.GetChildAt(0).Slot;
+        const m=before.Padding;last.SetPadding(new UE.Margin(m.Left,m.Top,m.Right,m.Bottom));before.SetPadding(first.Padding); }
+    log("MENU_TAB_REGISTERED native-settings");
+}
+function openMenu() {
+    if(currentPanelOwnsInput()) {registerAssistTab(menu.panel);menu.panel.W_OverlayTabList_C.SelectTabByID(settingsTab);return;}
+    const pc=UE.GameplayStatics.GetPlayerController(gi,0),pawn=UE.GameplayStatics.GetPlayerCharacter(gi,0);
+    if(!pc || !pawn || menu.request) return;
+    const reason=blocked(pawn);if(reason && reason!=="disabled")return;
+    if(!require("Library/UIHelper").default.canOpenSystemUI(pc))return;
+    const path="/Game/PBZContent/UI/UINew/System/Setting/W_SettingActivateableWidget.W_SettingActivateableWidget_C";
+    const cls=UE.KismetSystemLibrary.Conv_SoftClassPathToSoftClassRef(UE.KismetSystemLibrary.MakeSoftClassPath(path));
+    const action=UE.AsyncAction_PushContentToLayerForPlayer.PushContentToLayerForPlayer(pc,cls,tag("UI.Layer.GameSystem"));
+    menu.request={action,pc,at:Date.now(),host:null};
+    action.BeforePush.Add(host=>{if(menu.request)menu.request.host=host;});
+    action.Activate();log("MENU_OPEN_REQUEST native-layer");
+}
+function installSettingsHooks() {
+    const prototype=require("UI/Setting/SettingPanel").SettingPanelMixinInterface.prototype;
+    const required=["BP_InitWidget","OnTabSelected","FinishCurrentWidget","SelectWidgetToFocus","SelectDefaultGameSettingForDirectOpen","backInputInternal","ChangeInputMethod","ClickCollection","handleResetKeyPressed"];
+    for(const name of required)if(typeof prototype[name]!=="function")throw new Error("settings interface missing "+name);
+    const wrap=(name,handler)=>{const original=prototype[name];prototype[name]=function(...args){return handler.call(this,original,args);};};
+    wrap("BP_InitWidget",function(original,args){
+        if(menu.panel===this) {leaveAssistTab();dropMenuPage();}
+        const result=original.apply(this,args);menu.panel=this;
+        setTimeout(()=>{try {if(menu.panel===this && UE.KismetSystemLibrary.IsValid(this))registerAssistTab(this);}catch(e){log("MENU_TAB_ERROR "+e);}},100);
+        return result;
+    });
+    wrap("OnTabSelected",function(original,args){
+        if(String(args[0])!==settingsTab){if(menu.panel===this)leaveAssistTab();menu.lastStock=String(args[0]);return original.apply(this,args);}
+        try {
+            if(this.SettingWidget.HasVideoSettingChanged()) {
+                this.W_OverlayTabList_C.SelectTabByID(menu.lastStock||"Game");
+                if(this.CanNavigateToOtherWidgetOrCollection(settingsTab)===true && !this.SettingWidget.HasVideoSettingChanged())
+                    setTimeout(()=>this.W_OverlayTabList_C.SelectTabByID(settingsTab),0);
+                return;
+            }
+            enterAssistTab(this);
+        }catch(e){log("MENU_ENTER_ERROR "+e);dropMenuPage();this.W_OverlayTabList_C.RemoveTab(settingsTab);this.W_OverlayTabList_C.SelectTabByID("Game");}
+    });
+    wrap("SelectDefaultGameSettingForDirectOpen",function(original,args){
+        const host=menu.request && menu.request.host;
+        if(!host || !host.W_SettingWidget || host.W_SettingWidget.Settings_Panel!==this)return original.apply(this,args);
+        registerAssistTab(this);this.IsEnterSecond=true;
+        setTimeout(()=>{try{if(menu.panel===this)this.W_OverlayTabList_C.SelectTabByID(settingsTab);}catch(e){log("MENU_DIRECT_ERROR "+e);}},150);
+        menu.request=null;return true;
+    });
+    for(const name of ["SelectWidgetToFocus","ChangeInputMethod","ClickCollection"])
+        wrap(name,function(original,args){if(menu.panel!==this || !menu.active)return original.apply(this,args);selectMenuRow(menu.focus,true);});
+    wrap("handleResetKeyPressed",function(original,args){if(menu.panel!==this || !menu.active)return original.apply(this,args);});
+    wrap("backInputInternal",function(original,args){return original.apply(this,menu.panel===this && menu.active?[true]:args);});
+    wrap("FinishCurrentWidget",function(original,args){if(menu.panel===this){leaveAssistTab();dropMenuPage();menu.panel=null;log("MENU_CLOSED native-settings");}return original.apply(this,args);});
+    const module=require("UI/Setting/SettingPanel"),release=module.releasePanelHostBinding;
+    if(typeof release==="function")module.releasePanelHostBinding=function(panel,...args){
+        if(menu.panel===panel){leaveAssistTab();dropMenuPage();menu.panel=null;log("MENU_CLOSED native-host");}
+        return release.call(this,panel,...args);
+    };
+    log("MENU_HOOKS_READY native-settings");
+}
+function menuTick() {
+    try {
+        const pc=UE.GameplayStatics.GetPlayerController(gi,0);if(!pc)return;
+        if(menu.request && (menu.request.pc!==pc || Date.now()-menu.request.at>8000)) {menu.request.action.Cancel();menu.request=null;log("MENU_REQUEST_CANCELLED");}
+        const f9=new UE.Key("F9"),down=pc.IsInputKeyDown(f9)||pc.WasInputKeyJustPressed(f9);
+        if(down && !menu.down)openMenu();
+        menu.down=down;
+        if(menu.active && !UE.KismetSystemLibrary.IsValid(menu.panel)){dropMenuPage();menu.panel=null;}
+        if(menu.active && Date.now()>=menu.refreshAt){menu.refreshAt=Date.now()+250;refreshMenu();}
+        menu.error="";
+    }catch(e){const s=String(e);if(s!==menu.error)log("MENU_ERROR "+s);menu.error=s;}
+}
+try {installSettingsHooks();setInterval(menuTick,16);} catch(e) {log("MENU_DISABLED "+e);}

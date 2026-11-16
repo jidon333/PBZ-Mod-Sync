@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-16",
+  "version": "0.2.0-preview",
+  "status": "native-menu-verified-real-combat-unverified",
+  "game_build": "26367565",
+  "dll_sha256": "b223fac189e4dcc7c4217cccf0411bec2e6be7f1e3d80a055952104f73ede371",
+  "script_sha256": "229b3f32ff0ee304f7b8d28f6b0c4efdbda1c04ffad05293395ecaf25d878be2",
+  "tests": {
+    "node_mock_behavior": 17,
+    "python_installer": 9,
+    "python_bundle_integration": 1
+  },
+  "live": {
+    "f9_opens_native_settings": true,
+    "esc_closes_native_settings": true,
+    "reopen_without_duplicate_tab": true,
+    "mouse_all_seven_controls": true,
+    "keyboard_arrows": true,
+    "stock_sound_tab_roundtrip": true,
+    "restart_persisted_settings": {
+      "enabled": true,
+      "deflect": 1.75,
+      "dodge": 1.75,
+      "blue": false,
+      "red": false,
+      "speed": 0.55,
+      "seconds": 1.6,
+      "selfTest": false
+    },
+    "disable_restores_base_windows": true,
+    "reenable_applies_windows": true,
+    "normal_deflect_frames": {
+      "base": 8,
+      "multiplier_1_75": 14,
+      "multiplier_2": 16
+    },
+    "perfect_dodge_seconds": {
+      "base": 0.15000000596046448,
+      "multiplier_1_75": 0.26250001788139343,
+      "multiplier_2": 0.30000001192092896
+    },
+    "final_session_menu_errors": 0,
+    "game_closed_after_tests": true
+  },
+  "native": {
+    "export_names_exact": 47,
+    "imports": [
+      "bcrypt.dll",
+      "KERNEL32.dll"
+    ],
+    "embedded_script_bytes_exact": true
+  },
+  "final_settings": {
+    "enabled": true,
+    "deflect": 2,
+    "dodge": 2,
+    "blue": true,
+    "red": true,
+    "speed": 0.5,
+    "seconds": 1.5,
+    "selfTest": false
+  },
+  "evidence_hashes": {
+    "menu-first-session.log": "6b9d415b58ed98b1d3340227056c930e9638293c197bff3ba1a02e92f337b56f",
+    "menu-final-runtime.log": "b69474fcf21ec52672ce07733f5e9a7052091191922fbf4ccf7454c89ffd9ef6",
+    "menu-final-native.log": "6ff0120c438df11d1d45e7fb6d9dd239a7529e6b9d44c55e3dc7805ecafb369a",
+    "menu-saved-config.json": "3f5a2db71c0b1336d067484ab87dcbb472cc9f830064fa7b5bcc04ee58434ed4"
+  },
+  "menu_screenshot_sha256": "1a92cb5fb52f9376034750fc697d97cff7ef6dd5fa4338546808f935a65e47b4",
+  "limits": [
+    "No real enemy red/blue combat tested. Prior synthetic engine test belongs to v0.1 evidence.",
+    "Keyboard arrows and Sound tab roundtrip exercised on preceding native-menu candidate; final candidate changes float rounding tolerance and F9 help only.",
+    "F9 opens; Esc/native Back closes. F9 closing is not supported.",
+    "Controller navigation, graphics pending-changes dialogs, all resolutions and other PCs are unverified."
+  ]
+}

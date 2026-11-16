@@ -11,6 +11,7 @@ shutil.copy2(source,root/'dist/hid.dll')
 files=[]
 for local,target in [('dist/hid.dll','platform/steam/hid.dll'),('scripts/boot.js','ProjectPBZ/Content/JavaScript/JidonPBZ/boot.js')]:
     files.append({'source':local,'path':target,'sha256':hashlib.sha256((root/local).read_bytes()).hexdigest()})
-manifest={'version':'0.1.0-preview','packages':[{'id':'jidon-source-built','files':files}]}
+manifest={'version':'0.2.0-preview','packages':[{'id':'jidon-source-built','files':files}],
+          'previous_bundles':json.loads((root/'native/previous-bundles.json').read_text(encoding='utf8'))}
 (root/'bundle.lock.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf8',newline='\n')
 print(json.dumps(manifest,indent=2))

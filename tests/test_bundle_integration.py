@@ -24,7 +24,9 @@ class BundleIntegration(unittest.TestCase):
                 self.assertEqual((game/'platform/steam/hid.dll').read_bytes(),(repo/'dist/hid.dll').read_bytes())
                 config=game/'ProjectPBZ/Content/JidonPBZ.json'
                 original=config.read_bytes();new=json.loads(original);new['deflect']=1.5
-                config.write_text(json.dumps(new),encoding='utf8');call('export','--apply')
+                config.write_text(json.dumps(new),encoding='utf8');call('install','--apply')
+                self.assertEqual(json.loads(config.read_text())['deflect'],1.5)
+                call('export','--apply')
                 self.assertEqual(json.loads((copy/'settings/JidonPBZ.json').read_text())['deflect'],1.5)
                 receipt=next((copy/'.local/backups').glob('*/receipt.json'))
                 with self.assertRaises(ValueError):m.restore(game,receipt,True)

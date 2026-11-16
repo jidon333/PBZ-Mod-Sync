@@ -106,6 +106,16 @@ def verify_installed(game, lock):
             if not path.is_file() or sha(path.read_bytes())!=f['sha256']: failures.append(f['path'])
     if failures: raise ValueError('Missing or changed mod files: '+', '.join(failures))
 
+def known_previous_bundle(game, lock, paths):
+    # A name or marker string does not establish provenance. Require the entire
+    # released DLL/script pair, never just the DLL or an empty hash collection.
+    for previous in lock.get('previous_bundles', []):
+        files=previous.get('files',{})
+        if not files or set(files)!=set(paths): continue
+        if all(safe_path(game,p).is_file() and sha(safe_path(game,p).read_bytes())==h for p,h in files.items()):
+            return True
+    return False
+
 def restore(game, receipt_path, apply):
     receipt_path=receipt_path.resolve()
     if not receipt_path.is_relative_to((ROOT/'.local/backups').resolve()): raise ValueError('Receipt must be in this checkout .local/backups')
@@ -165,13 +175,17 @@ def main():
         payload=bundle_payload(lock)
         existing=game/'platform/steam/hid.dll'
         if existing.exists() and existing.read_bytes()!=payload['platform/steam/hid.dll']:
-            raise ValueError('A different hid.dll is installed; isolate it before installing our loader')
+            if not known_previous_bundle(game,lock,payload):
+                raise ValueError('An unknown or modified loader is installed; isolate it before installing our loader')
         if (game/'ProjectPBZ/Content/JavaScript/PBZModsMenu').exists():
             raise ValueError('Original Mods Menu directory must be isolated first')
         for ext in ('pak','utoc','ucas'):
             if safe_path(game,CONFIG_DIR+'/Paks/~mods/zzz_PBZPerfectDefense_P.'+ext).exists():
                 raise ValueError('Legacy PerfectDefense files detected; follow author uninstall instructions first')
-    payload.update({CONFIG_DIR+'/'+name:(ROOT/'settings'/name).read_bytes() for name in CONFIGS})
+    # Installing/upgrading must preserve settings changed through the F9 menu.
+    # Explicit settings sync is the only action that replaces an existing file.
+    payload.update({CONFIG_DIR+'/'+name:(ROOT/'settings'/name).read_bytes() for name in CONFIGS
+                    if args.action!='install' or not safe_path(game,CONFIG_DIR+'/'+name).exists()})
     commit_files(game,payload,args.action,args.apply)
 
 if __name__=='__main__':main()

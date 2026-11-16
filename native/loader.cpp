@@ -98,7 +98,7 @@ static DWORD WINAPI worker(void*) {
  wchar_t* filename=wcsrchr(exe,L'\\');if(!filename||_wcsicmp(filename+1,L"PBZ.exe"))return 0;
  std::wstring logfile(exe,filename+1);logfile+=L"JidonPBZ-native.log";
  logFile=CreateFileW(logfile.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
- log("JidonPBZ source-built loader v0.1");
+ log("JidonPBZ source-built loader v0.2");
  resolve_hid();
  if(!fileHash(exe)){log("unsupported game SHA256; no hooks installed");return 0;}
  if(!scriptMatches(std::wstring(exe,filename+1))){log("owned script missing or modified; no hooks installed");return 0;}

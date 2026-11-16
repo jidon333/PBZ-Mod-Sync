@@ -12,7 +12,12 @@ header+='static const unsigned char kGameHash[] = {'+','.join(str(v) for v in by
 header+=f'static const unsigned kImageSize={profile["image_size"]}, kTimestamp={profile["timestamp"]};\n'
 header+='struct Call { unsigned rva,target; unsigned char expected[8]; };\nstatic const Call kCalls[] = {\n'
 for c in profile['calls']:header+='{'+f'{c["rva"]},{c["target"]},'+ '{'+','.join(str(v) for v in bytes.fromhex(c['bytes']))+'}},\n'
-header+='};\nstatic const char kScript[] = R"JIDON_SCRIPT('+script.decode('ascii')+')JIDON_SCRIPT";\n'
+header+='};\nstatic const char kScript[] =\n'
+# MSVC limits an individual raw string literal. Adjacent literals preserve the
+# exact bytes while allowing a larger, still narrowly pinned bootstrap.
+text=script.decode('ascii')
+assert ')JIDON_SCRIPT"' not in text
+header+='\n'.join('R"JIDON_SCRIPT('+text[i:i+8000]+')JIDON_SCRIPT"' for i in range(0,len(text),8000))+';\n'
 (root/'native/generated.h').write_text(header,encoding='ascii')
 asm='EXTERN hid_targets:QWORD\nEXTERN resolve_hid:PROC\n.code\n'
 for i,name in enumerate(exports):

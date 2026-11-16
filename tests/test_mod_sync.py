@@ -57,5 +57,14 @@ class InstallerTests(unittest.TestCase):
     def test_settings_requires_exact_installed_mod(self):
         lock={'packages':[{'files':[{'path':'missing.js','sha256':'0'*64}]}]}
         with self.assertRaises(ValueError):m.verify_installed(self.game,lock)
+    def test_upgrade_requires_complete_known_pair(self):
+        paths={'platform/steam/hid.dll':b'our-old-dll','ProjectPBZ/Content/JavaScript/JidonPBZ/boot.js':b'our-old-script'}
+        for p,data in paths.items():
+            dest=self.game/p;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
+        lock={'previous_bundles':[{'files':{p:m.sha(d) for p,d in paths.items()}}]}
+        self.assertTrue(m.known_previous_bundle(self.game,lock,paths))
+        (self.game/'platform/steam/hid.dll').write_bytes(b'unknown')
+        self.assertFalse(m.known_previous_bundle(self.game,lock,paths))
+        self.assertFalse(m.known_previous_bundle(self.game,{'previous_bundles':[{'files':{}}]},paths))
 
 if __name__=='__main__':unittest.main()

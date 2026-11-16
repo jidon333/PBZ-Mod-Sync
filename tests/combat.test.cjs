@@ -1,12 +1,14 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
-function fixture() {
-  let time=0,ms=1000,paused=false,dead=false,pawn={name:'player'},configText='';
+function fixture(float32 = false) {
+  let time=0,ms=1000,paused=false,dead=false,pawn={name:'player'},configText='',writeFail=false;
   const entries=new Map([['other-mod',0.8]]),listeners=[];
   const sub={RuntimeSlomoData:{SlomoData:{GetMaxIndex:()=>entries.size,IsValidIndex:()=>true,GetKey:i=>[...entries.keys()][i]}},ApplySlomo:(k,v)=>{if(v===1)entries.delete(k);else entries.set(k,v);}};
   const cfg={'Deflect Perfect Window Frames':8,'Deflect Perfect Window Frames On Break':6};
-  const dash={DurationMagnitude:{ScalableFloatMagnitude:{Value:0.2}}};
+  let dodgeValue = float32 ? Math.fround(0.2) : 0.2, dodgeWrites = 0;
+  const flat = {get Value(){return dodgeValue;},set Value(v){dodgeWrites++;dodgeValue=float32?Math.fround(v):v;}};
+  const dash={DurationMagnitude:{ScalableFloatMagnitude:flat}};
   const UE={KismetSystemLibrary:{GetProjectSavedDirectory:()=>'',GetProjectContentDirectory:()=>'',GetPathName:p=>p.name},
-    EasyCsv:{SaveStringToFileWithFullPath:()=>true,LoadStringFromLocalFile:(p,r)=>{if(!configText)return false;r.v=configText;return true;}},
+    EasyCsv:{SaveStringToFileWithFullPath:(s,p)=>{if(p==='JidonPBZ.json'){if(writeFail)return false;configText=s;}return true;},LoadStringFromLocalFile:(p,r)=>{if(!configText)return false;r.v=configText;return true;}},
     GameplayTag:class{},GameplayStatics:{GetPlayerCharacter:()=>pawn,GetTimeSeconds:()=>time,IsGamePaused:()=>paused},
     AbilitySystemBlueprintLibrary:{GetAbilitySystemComponent:()=>({HasMatchingGameplayTag:t=>dead&&t.TagName==='CharacterState.Dead'})},
     PBZLevelSequenceManager:{StaticClass:()=> 'sequence'},SlomoWorldSubsystem:{StaticClass:()=> 'slow'},
@@ -14,8 +16,8 @@ function fixture() {
     AbilityAsync_WaitGameplayEvent:{WaitGameplayEventToActor:()=>{const t={EventReceived:{Add:f=>t.callback=f},Activate(){},EndAction(){t.ended=true;}};listeners.push(t);return t;}},
     Object:{Find:p=>p.includes('_Normal.')?cfg:null},Class:{Load:()=> 'dash'},SGameAIFunctionLibrary:{GetClassDefaultObject:()=>dash}};
   const ctx=vm.createContext({require:n=>n==='ue'?UE:n==='puerts'?{argv:{getByName:()=>({})},$ref:v=>({v}),$unref:r=>r.v}:{},Date:class extends Date {static now(){return ms;}},setInterval:()=>1,console});
-  vm.runInContext(fs.readFileSync('scripts/boot.js','utf8')+'\nglobalThis.api={tick,onAttack,state};',ctx);
-  return {api:ctx.api,entries,cfg,dash,listeners,advance:(t,m)=>{time=t;ms=m;},pause:v=>paused=v,death:v=>dead=v,travel:()=>pawn={name:'new-world-player'},config:v=>configText=JSON.stringify(v)};
+  vm.runInContext(fs.readFileSync('scripts/boot.js','utf8')+'\nglobalThis.api={tick,onAttack,state,changeSetting,menuValue};',ctx);
+  return {api:ctx.api,entries,cfg,dash,listeners,dodgeWrites:()=>dodgeWrites,saved:()=>JSON.parse(configText),failWrite:v=>writeFail=v,advance:(t,m)=>{time=t;ms=m;},pause:v=>paused=v,death:v=>dead=v,travel:()=>pawn={name:'new-world-player'},config:v=>configText=JSON.stringify(v)};
 }
 function attack(kind,hit=1){return {OptionalObject:{ReceiveFrame:{SourceAction:{DeflectType:kind},HitGameTime:hit,IsHit:false}}};}
 let count=0;function test(name,fn){fn();console.log('PASS '+name);count++;}
@@ -28,3 +30,10 @@ test('diagnostic does not pass when its blue timing was missed',()=>{const f=fix
 test('disable restores both timing fields and only own slow key',()=>{const f=fixture();f.api.tick();f.api.onAttack(attack(3));f.advance(.5,1500);f.api.tick();f.config({enabled:false});f.advance(.6,2500);f.api.tick();assert.equal(f.cfg['Deflect Perfect Window Frames'],8);assert.equal(f.dash.DurationMagnitude.ScalableFloatMagnitude.Value,.2);assert(!f.entries.has('JidonPBZ.Slow'));assert.equal(f.entries.get('other-mod'),.8);});
 test('invalid config stops slowdown without executing arbitrary code',()=>{const f=fixture();f.api.tick();f.api.onAttack(attack(2));f.advance(.5,1500);f.api.tick();f.config({speed:0});f.advance(.6,2500);f.api.tick();assert(!f.entries.has('JidonPBZ.Slow'));});
 console.log(count+' behavior tests passed (mock engine; live tests separate).');
+test('menu persists deflect and dodge then applies without compounding',()=>{const f=fixture();f.api.tick();assert(f.api.changeSetting('deflect',-1));assert.equal(f.saved().deflect,1.75);assert.equal(f.cfg['Deflect Perfect Window Frames'],14);assert(f.api.changeSetting('dodge',-1));assert.equal(f.saved().dodge,1.75);assert(Math.abs(f.dash.DurationMagnitude.ScalableFloatMagnitude.Value-.35)<1e-6);});
+test('menu clamps limits and preserves unrelated configuration',()=>{const f=fixture();f.config({deflect:1,dodge:3,selfTest:false,custom:'keep'});f.api.tick();f.api.changeSetting('deflect',-1);assert.equal(f.api.menuValue('deflect'),'1.00x');f.api.changeSetting('dodge',1);assert.equal(f.api.menuValue('dodge'),'3.00x');f.api.changeSetting('red',0);assert.equal(f.saved().red,false);assert.equal(f.saved().blue,true);assert.equal(f.saved().custom,'keep');});
+test('menu disk failure does not claim or apply a change',()=>{const f=fixture();f.api.tick();f.failWrite(true);assert.equal(f.api.changeSetting('deflect',-1),false);assert.equal(f.api.menuValue('deflect'),'2.00x');assert.equal(f.cfg['Deflect Perfect Window Frames'],16);});
+test('menu disables active slowdown and restores windows',()=>{const f=fixture();f.api.tick();f.api.onAttack(attack(3));f.advance(.5,1500);f.api.tick();assert(f.entries.has('JidonPBZ.Slow'));f.api.changeSetting('enabled',0);assert(!f.entries.has('JidonPBZ.Slow'));assert.equal(f.cfg['Deflect Perfect Window Frames'],8);assert.equal(f.dash.DurationMagnitude.ScalableFloatMagnitude.Value,.2);});
+test('fractional multipliers round frame counts without changing the baseline',()=>{const f=fixture();f.api.tick();assert(f.api.changeSetting('deflect',1));assert.equal(f.cfg['Deflect Perfect Window Frames On Break'],14);assert.equal(f.saved().deflect,2.25);assert(f.api.changeSetting('deflect',-1));assert.equal(f.cfg['Deflect Perfect Window Frames On Break'],12);});
+test('native float32 dodge rounding does not cause repeated writes',()=>{const f=fixture(true);f.api.tick();f.api.changeSetting('dodge',-1);const writes=f.dodgeWrites();for(let i=1;i<5;i++){f.advance(i,1000+i*1100);f.api.tick();}assert.equal(f.dodgeWrites(),writes);assert(Math.abs(f.dash.DurationMagnitude.ScalableFloatMagnitude.Value-.35)<1e-6);f.api.changeSetting('enabled',0);assert.equal(f.dash.DurationMagnitude.ScalableFloatMagnitude.Value,Math.fround(.2));});
+console.log(count+' behavior tests passed including menu persistence (mock engine; live tests separate).');
